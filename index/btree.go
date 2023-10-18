@@ -13,6 +13,14 @@ type BTree struct {
 	lock *sync.RWMutex
 }
 
+// NewBTree 新建BTree索引结构
+func NewBTree() *BTree {
+	return &BTree{
+		tree: btree.New(32),
+		lock: new(sync.RWMutex),
+	}
+}
+
 func (bt *BTree) Put(key []byte, pos *data.LogRecordPos) bool {
 	it := &Item{key: key, pos: pos}
 	bt.lock.Lock()
@@ -28,7 +36,7 @@ func (bt *BTree) Get(key []byte) *data.LogRecordPos {
 	}
 	return btreeItem.(*Item).pos
 }
-func (bt *BTree) funcDelete(key []byte) bool {
+func (bt *BTree) Delete(key []byte) bool {
 	it := &Item{key: key}
 	bt.lock.Lock()
 	btreeItem := bt.tree.Delete(it)
