@@ -9,6 +9,10 @@ type DataFile struct {
 	IOManager fio.IOManager // io读写管理
 }
 
+const (
+	DataFileNameSuffix = ".data"
+)
+
 // OpenDataFile 打开新的数据文件
 func OpenDataFile(dirPath string, fileId uint32) (*DataFile, error) {
 	return nil, nil

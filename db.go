@@ -1,8 +1,13 @@
 package kv_bitcask
 
 import (
+	"io"
 	"kv-bitcask/data"
 	"kv-bitcask/index"
+	"os"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -10,10 +15,44 @@ import (
 type DB struct {
 	options    Options
 	mu         *sync.RWMutex
-	fileIds    []uint32
+	fileIds    []int // 仅用于一开始加载实例
 	activeFile *data.DataFile
 	olderFile  map[uint32]*data.DataFile
 	index      index.Indexer
+}
+
+// Open 根据配置项打开一个DB实例
+func Open(options Options) (*DB, error) {
+	// 校验配置项options
+	if err := checkOptions(options); err != nil {
+		return nil, err
+	}
+
+	// 判断目录是否存在，不存在则创建
+	if _, err := os.Stat(options.DirPath); os.IsNotExist(err) {
+		if err := os.MkdirAll(options.DirPath, os.ModePerm); err != nil {
+			return nil, err
+		}
+	}
+
+	// 初始化DB实例
+	db := &DB{
+		options:   options,
+		mu:        new(sync.RWMutex),
+		olderFile: make(map[uint32]*data.DataFile),
+		index:     index.NewIndexer(options.IndexType),
+	}
+
+	// 加载数据文件
+	if err := db.loadDataFiles(); err != nil {
+		return nil, err
+	}
+
+	// 加载索引文件
+	if err := db.loadIndexFromDataFiles(); err != nil {
+		return nil, err
+	}
+	return db, nil
 }
 
 // Put 写入key-val，key不为空，加锁在appendLogRecord中考虑
@@ -148,5 +187,105 @@ func (db *DB) setActiveDataFile() error {
 		return err
 	}
 	db.activeFile = dataFile
+	return nil
+}
+
+// 从磁盘中加载数据文件
+func (db *DB) loadDataFiles() error {
+	dirEntries, err := os.ReadDir(db.options.DirPath)
+	if err != nil {
+		return err
+	}
+
+	var fileIds []int
+	// 遍历目录中所有文件，找到所有以.data结尾的文件
+	for _, entry := range dirEntries {
+		if strings.HasSuffix(entry.Name(), data.DataFileNameSuffix) {
+			splitName := strings.Split(entry.Name(), ".")
+			fileId, err := strconv.Atoi(splitName[0])
+			if err != nil {
+				return ErrDataDirectoryCorrupted
+			}
+			fileIds = append(fileIds, fileId)
+		}
+	}
+
+	// 对文件id进行排序，从小到大加载
+	sort.Ints(fileIds)
+	db.fileIds = fileIds
+
+	// 遍历每个文件id，打开对应的数据文件
+	for i, fid := range fileIds {
+		dataFile, err := data.OpenDataFile(db.options.DirPath, uint32(fid))
+		if err != nil {
+			return err
+		}
+		// 最后一个是active文件
+		if i == len(fileIds)-1 {
+			db.activeFile = dataFile
+		} else { // 否则加入到older file map中
+			db.olderFile[uint32(fid)] = dataFile
+		}
+	}
+	return nil
+}
+
+// 从数据文件中加载索引
+func (db *DB) loadIndexFromDataFiles() error {
+	// 如果没有文件，说明数据库是空的，直接返回
+	if len(db.fileIds) == 0 {
+		return nil
+	}
+
+	// 遍历文件id，处理文件中的记录
+	for i, fid := range db.fileIds {
+		var fileId = uint32(fid)
+		var dataFile *data.DataFile
+		if fileId == db.activeFile.FileId {
+			dataFile = db.activeFile
+		} else {
+			dataFile = db.olderFile[fileId]
+		}
+
+		var offset int64 = 0
+		for {
+			logRecord, size, err := dataFile.ReadLogRecord(offset)
+			if err != nil {
+				// 判断是否是读完该文件
+				if err == io.EOF {
+					break
+				}
+				return err
+			}
+
+			// 构建内存索引并保存
+			LogRecordPos := &data.LogRecordPos{Fid: fileId, Offset: offset}
+			var ok bool
+			if logRecord.Type == data.LogRecordDeleted {
+				ok = db.index.Delete(logRecord.Key)
+			} else {
+				ok = db.index.Put(logRecord.Key, LogRecordPos)
+			}
+			if !ok {
+				return ErrIndexUpdateFailed
+			}
+			offset += size
+		}
+		// 判断是active文件，则更新该文件的WriteOff
+		if i == len(db.fileIds)-1 {
+			db.activeFile.WriteOff = offset
+		}
+	}
+	return nil
+}
+
+// 查验options是否合规
+func checkOptions(options Options) error {
+	if options.DirPath == "" {
+		return ErrDirPathIsEmpty
+	}
+	if options.DataFileSize <= 0 {
+		return ErrFileSizeIllegal
+	}
 	return nil
 }
