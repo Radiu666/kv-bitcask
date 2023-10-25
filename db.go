@@ -83,6 +83,34 @@ func (db *DB) Put(key []byte, value []byte) error {
 	return nil
 }
 
+// Delete 根据key删除对应的数据
+func (db *DB) Delete(key []byte) error {
+	if len(key) == 0 {
+		return ErrKeyIsEmpty
+	}
+
+	// 判断key是否存在，不存在则不添加新的记录进去
+	if pos := db.index.Get(key); pos == nil {
+		return nil
+	}
+
+	// 构造LogRecord，标记墓碑值
+	logRecord := &data.LogRecord{Key: key, Type: data.LogRecordDeleted}
+
+	// 写入
+	_, err := db.appendLogRecord(logRecord)
+	if err != nil {
+		return err
+	}
+
+	// 从内存索引中删除
+	ok := db.index.Delete(key)
+	if !ok {
+		return ErrIndexUpdateFailed
+	}
+	return nil
+}
+
 // Get 根据key读取数据
 func (db *DB) Get(key []byte) ([]byte, error) {
 	db.mu.RLock()
