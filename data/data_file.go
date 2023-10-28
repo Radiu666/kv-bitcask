@@ -3,6 +3,7 @@ package data
 import (
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"kv-bitcask/fio"
 	"path/filepath"
@@ -96,7 +97,7 @@ func (df *DataFile) ReadLogRecord(offset int64) (*LogRecord, int64, error) {
 	}
 
 	// 验证CRC
-	crc := getLogRecordCRC(logRecord, headerBuf)
+	crc := getLogRecordCRC(logRecord, headerBuf[crc32.Size:headerSize])
 	if crc != header.crc {
 		return nil, 0, ErrInvalidCRC
 	}
