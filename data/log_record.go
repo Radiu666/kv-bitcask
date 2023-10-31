@@ -72,8 +72,8 @@ func EncodeLogRecord(logRecord *LogRecord) ([]byte, int64) {
 	return encBytes, int64(size)
 }
 
-// DecodeLogRecordHeader 对字节数组的头部进行解码
-func DecodeLogRecordHeader(buf []byte) (*LogRecordHeader, int64) {
+// decodeLogRecordHeader 对字节数组的头部进行解码
+func decodeLogRecordHeader(buf []byte) (*LogRecordHeader, int64) {
 	if len(buf) <= 4 {
 		return nil, 0
 	}

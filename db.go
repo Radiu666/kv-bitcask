@@ -17,7 +17,7 @@ type DB struct {
 	mu         *sync.RWMutex
 	fileIds    []int // 仅用于一开始加载实例
 	activeFile *data.DataFile
-	olderFile  map[uint32]*data.DataFile
+	olderFiles map[uint32]*data.DataFile
 	index      index.Indexer
 }
 
@@ -37,10 +37,10 @@ func Open(options Options) (*DB, error) {
 
 	// 初始化DB实例
 	db := &DB{
-		options:   options,
-		mu:        new(sync.RWMutex),
-		olderFile: make(map[uint32]*data.DataFile),
-		index:     index.NewIndexer(options.IndexType),
+		options:    options,
+		mu:         new(sync.RWMutex),
+		olderFiles: make(map[uint32]*data.DataFile),
+		index:      index.NewIndexer(options.IndexType),
 	}
 
 	// 加载数据文件
@@ -53,6 +53,11 @@ func Open(options Options) (*DB, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+// Close 关闭数据库
+func (db *DB) Close() error {
+	return nil
 }
 
 // Put 写入key-val，key不为空，加锁在appendLogRecord中考虑
@@ -133,7 +138,7 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 	if db.activeFile.FileId == LogRecordPos.Fid {
 		dataFile = db.activeFile
 	} else {
-		dataFile = db.olderFile[LogRecordPos.Fid]
+		dataFile = db.olderFiles[LogRecordPos.Fid]
 	}
 
 	// 数据文件为空
@@ -178,7 +183,7 @@ func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, er
 		}
 
 		// 当前文件加入到不活跃状态
-		db.olderFile[db.activeFile.FileId] = db.activeFile
+		db.olderFiles[db.activeFile.FileId] = db.activeFile
 
 		// 开新页
 		if err := db.setActiveDataFile(); err != nil {
@@ -252,7 +257,7 @@ func (db *DB) loadDataFiles() error {
 		if i == len(fileIds)-1 {
 			db.activeFile = dataFile
 		} else { // 否则加入到older file map中
-			db.olderFile[uint32(fid)] = dataFile
+			db.olderFiles[uint32(fid)] = dataFile
 		}
 	}
 	return nil
@@ -272,7 +277,7 @@ func (db *DB) loadIndexFromDataFiles() error {
 		if fileId == db.activeFile.FileId {
 			dataFile = db.activeFile
 		} else {
-			dataFile = db.olderFile[fileId]
+			dataFile = db.olderFiles[fileId]
 		}
 
 		var offset int64 = 0
