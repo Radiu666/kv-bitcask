@@ -44,6 +44,7 @@ func TestDB_Put(t *testing.T) {
 	err = db.Put(utils.GetTestKey(1), utils.RandomValue(24))
 	assert.Nil(t, err)
 	val1, err := db.Get(utils.GetTestKey(1))
+	//fmt.Printf("%c", val1)
 	assert.Nil(t, err)
 	assert.NotNil(t, val1)
 
@@ -51,6 +52,7 @@ func TestDB_Put(t *testing.T) {
 	err = db.Put(utils.GetTestKey(1), utils.RandomValue(24))
 	assert.Nil(t, err)
 	val2, err := db.Get(utils.GetTestKey(1))
+	//fmt.Printf("%c", val2)
 	assert.Nil(t, err)
 	assert.NotNil(t, val2)
 
